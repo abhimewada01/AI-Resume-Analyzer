@@ -1,0 +1,291 @@
+const form = document.getElementById("analyzeForm");
+const fileInput = document.getElementById("fileInput");
+const dropZone = document.getElementById("dropZone");
+const fileNameDisplay = document.getElementById("fileNameDisplay");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const resetBtn = document.getElementById("resetBtn");
+
+const errorBanner = document.getElementById("errorBanner");
+const scanState = document.getElementById("scanState");
+const resultsSection = document.getElementById("resultsSection");
+
+const atsScore = document.getElementById("atsScore");
+const wordCountLabel = document.getElementById("wordCountLabel");
+const skillCountLabel = document.getElementById("skillCountLabel");
+
+const skillsChips = document.getElementById("skillsChips");
+const skillsEmptyText = document.getElementById("skillsEmptyText");
+
+const strengthsList = document.getElementById("strengthsList");
+const weaknessesList = document.getElementById("weaknessesList");
+const missingKeywordsList = document.getElementById("missingKeywordsList");
+const missingKeywordsEmpty = document.getElementById("missingKeywordsEmpty");
+const tipsList = document.getElementById("tipsList");
+
+function show(el) {
+  if (el) el.classList.remove("hidden");
+}
+
+function hide(el) {
+  if (el) el.classList.add("hidden");
+}
+
+function setError(message) {
+  if (!errorBanner) return;
+  if (!message) {
+    errorBanner.textContent = "";
+    hide(errorBanner);
+    return;
+  }
+  errorBanner.textContent = message;
+  show(errorBanner);
+}
+
+function setScanning(isScanning) {
+  if (isScanning) {
+    show(scanState);
+    hide(resultsSection);
+    if (analyzeBtn) analyzeBtn.disabled = true;
+  } else {
+    hide(scanState);
+    if (analyzeBtn) analyzeBtn.disabled = false;
+  }
+}
+
+function updateFileName(file) {
+  if (!fileNameDisplay) return;
+  if (!file) {
+    fileNameDisplay.textContent = "No file selected yet";
+  } else {
+    fileNameDisplay.textContent = file.name;
+  }
+}
+
+function renderList(container, items) {
+  if (!container) return;
+  container.innerHTML = "";
+  (items || []).forEach((text) => {
+    const li = document.createElement("li");
+    li.className = "flex items-start gap-1.5";
+    const icon = document.createElement("span");
+    icon.className =
+      "mt-[3px] inline-flex h-3 w-3 flex-none items-center justify-center rounded-full bg-slate-300";
+    const dot = document.createElement("span");
+    dot.className = "h-1.5 w-1.5 rounded-full bg-slate-600";
+    icon.appendChild(dot);
+
+    const p = document.createElement("p");
+    p.textContent = text;
+
+    li.appendChild(icon);
+    li.appendChild(p);
+    container.appendChild(li);
+  });
+}
+
+function renderChips(container, items, baseClasses) {
+  if (!container) return;
+  container.innerHTML = "";
+  (items || []).forEach((text) => {
+    const span = document.createElement("span");
+    span.className =
+      baseClasses ||
+      "inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200";
+    span.textContent = text;
+    container.appendChild(span);
+  });
+}
+
+function handleDropZoneDrag(stateOn) {
+  if (!dropZone) return;
+  if (stateOn) {
+    dropZone.classList.add("dropzone-dragover", "ring-2", "ring-indigo-200");
+  } else {
+    dropZone.classList.remove("dropzone-dragover", "ring-2", "ring-indigo-200");
+  }
+}
+
+// Drag & drop events
+if (dropZone && fileInput) {
+  dropZone.addEventListener("click", () => {
+    fileInput.click();
+  });
+
+  ["dragenter", "dragover"].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleDropZoneDrag(true);
+    });
+  });
+
+  ["dragleave", "dragend"].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleDropZoneDrag(false);
+    });
+  });
+
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleDropZoneDrag(false);
+
+    const dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    const file = dt.files[0];
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Only PDF files are supported. Please drop a .pdf resume.");
+      return;
+    }
+
+    // Reflect dropped file in the hidden file input if possible.
+    try {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      fileInput.files = dataTransfer.files;
+    } catch {
+      // Fallback: the input might not be settable in older browsers.
+    }
+    updateFileName(file);
+    setError("");
+  });
+}
+
+if (fileInput) {
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files && fileInput.files[0];
+    updateFileName(file || null);
+    setError("");
+  });
+}
+
+if (resetBtn) {
+  resetBtn.addEventListener("click", () => {
+    if (form) form.reset();
+    updateFileName(null);
+    setError("");
+    setScanning(false);
+    hide(resultsSection);
+
+    strengthsList && (strengthsList.innerHTML = "");
+    weaknessesList && (weaknessesList.innerHTML = "");
+    missingKeywordsList && (missingKeywordsList.innerHTML = "");
+    tipsList && (tipsList.innerHTML = "");
+    skillsChips && (skillsChips.innerHTML = "");
+
+    if (skillsEmptyText) skillsEmptyText.classList.remove("hidden");
+    if (missingKeywordsEmpty) missingKeywordsEmpty.classList.remove("hidden");
+    if (atsScore) atsScore.textContent = "0";
+    if (wordCountLabel) wordCountLabel.textContent = "Waiting for analysis…";
+    if (skillCountLabel) skillCountLabel.textContent = "Detected skills will appear here.";
+  });
+}
+
+if (form) {
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setError("");
+
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      setError("Please select a PDF resume before running the analysis.");
+      return;
+    }
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Only PDF files are supported. Please upload a .pdf resume.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("resume", file);
+
+    setScanning(true);
+
+    try {
+      const res = await fetch("/analyze", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to analyze resume.");
+      }
+
+      const score = typeof data.ats_score === "number" ? data.ats_score : data.score || 0;
+      const skills = data.skills || [];
+      const strengths = data.strengths || [];
+      const weaknesses = data.weaknesses || [];
+      const missingKeywords = data.missing_keywords || [];
+      const tips = data.improvement_tips || data.suggestions || [];
+
+      if (atsScore) {
+        const clamped = Math.max(0, Math.min(100, Number(score) || 0));
+        atsScore.textContent = String(clamped);
+      }
+
+      if (typeof data.word_count === "number") {
+        wordCountLabel.textContent = `${data.word_count.toLocaleString()} words detected in your resume.`;
+      } else {
+        wordCountLabel.textContent = "Word count not available for this file.";
+      }
+
+      const skillCount = skills.length;
+      if (skillCount > 0) {
+        skillCountLabel.textContent = `${skillCount} technical skills or keywords detected.`;
+      } else {
+        skillCountLabel.textContent = "No skills detected from the current keyword list.";
+      }
+
+      renderChips(
+        skillsChips,
+        skills,
+        "inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800 ring-1 ring-slate-200"
+      );
+      if (skillsEmptyText) {
+        skillsEmptyText.classList.toggle("hidden", skills.length > 0);
+      }
+
+      renderList(strengthsList, strengths);
+      renderList(weaknessesList, weaknesses);
+
+      renderChips(
+        missingKeywordsList,
+        missingKeywords,
+        "inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-indigo-200"
+      );
+      if (missingKeywordsEmpty) {
+        missingKeywordsEmpty.classList.toggle("hidden", missingKeywords.length > 0);
+      }
+
+      tipsList.innerHTML = "";
+      (tips || []).forEach((tip) => {
+        const li = document.createElement("li");
+        li.className = "flex items-start gap-2";
+
+        const icon = document.createElement("span");
+        icon.className =
+          "mt-[3px] inline-flex h-4 w-4 flex-none items-center justify-center rounded-full bg-emerald-500 text-white";
+        icon.innerHTML =
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="h-2.5 w-2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75 9 17.25 19.5 6.75"/></svg>';
+
+        const p = document.createElement("p");
+        p.textContent = tip;
+        li.appendChild(icon);
+        li.appendChild(p);
+        tipsList.appendChild(li);
+      });
+
+      show(resultsSection);
+      resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      setError(err.message || "Something went wrong while analyzing your resume.");
+    } finally {
+      setScanning(false);
+    }
+  });
+}
+
